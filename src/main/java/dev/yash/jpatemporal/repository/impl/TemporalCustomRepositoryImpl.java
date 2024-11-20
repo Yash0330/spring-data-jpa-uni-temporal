@@ -1,5 +1,6 @@
 package dev.yash.jpatemporal.repository.impl;
 
+import dev.yash.jpatemporal.domain.Temporal;
 import dev.yash.jpatemporal.repository.TemporalCustomRepository;
 import jakarta.annotation.Nonnull;
 import jakarta.transaction.Transactional;
@@ -9,7 +10,6 @@ import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 import java.util.List;
 import java.util.Optional;
-import dev.yash.jpatemporal.domain.Temporal;
 
 /**
  * Custom repository implementation for handling temporal entities.
@@ -25,10 +25,9 @@ import dev.yash.jpatemporal.domain.Temporal;
 @Repository
 public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomRepository<T, ID> {
 
+    private final Class<T> domainClass;
     @PersistenceContext
     private EntityManager entityManager;
-
-    private final Class<T> domainClass;
 
     /**
      * Constructor to initialize the repository with the specific entity class.
@@ -70,7 +69,13 @@ public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomReposi
     }
 
     /**
-     * @return
+     * Counts the total number of active entities in the database.
+     * <p>
+     * This method returns the count of all entities where the {@code timeOut} field is equal to {@link Temporal#INFINITY}.
+     * Active entities are defined as those with {@code timeOut} set to an infinite value, indicating they are currently valid.
+     * </p>
+     *
+     * @return the total number of active entities
      */
     @Override
     public long count() {
@@ -81,44 +86,142 @@ public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomReposi
     }
 
     /**
-     * @param id
+     * Performs a soft delete on entity with the given ID by setting their {@code timeOut} field
+     * to the current time in milliseconds.
+     *
+     * @param id the ID of the entities to softly delete
      */
     @Override
     public void deleteById(ID id) {
+        long currentTimeMillis = System.currentTimeMillis();
 
+        T entity = entityManager.find(domainClass, id);
+        if (entity != null) {
+            try {
+                entity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).setAccessible(true);
+                entity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).set(entity, currentTimeMillis);
+                entityManager.merge(entity);
+            } catch (NoSuchFieldException | IllegalAccessException e) {
+                throw new RuntimeException("Failed to update the timeOut field for the entity with ID: " + id, e);
+            }
+        }
     }
 
     /**
-     * @param entity
+     * Performs a soft delete on the given entity by setting its {@code timeOut} field to the current time in milliseconds.
+     * <p>
+     * This method updates the {@code timeOut} field of the provided entity to indicate that it is no longer active.
+     * The entity is not physically removed from the database.
+     * </p>
+     *
+     * @param entity the entity to softly delete
+     * @throws IllegalArgumentException if the entity is {@code null} or does not have an ID
      */
     @Override
+    @Transactional
     public void delete(T entity) {
 
+        // Fetch the ID of the entity
+        ID entityId = (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
+
+        if (entityId == null) {
+            throw new IllegalArgumentException("Entity must have a valid ID");
+        }
+
+        // Fetch the existing entity from the database
+        T existingEntity = entityManager.find(domainClass, entityId);
+        if (existingEntity == null) {
+            throw new IllegalArgumentException("Entity does not exist in the database");
+        }
+
+        // Set the `timeOut` field to the current time in milliseconds
+        long currentTimeMillis = System.currentTimeMillis();
+        try {
+            existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).setAccessible(true);
+            existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).set(existingEntity, currentTimeMillis);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException("Failed to update the timeOut field for the entity", e);
+        }
+
+        // Update the entity in the database
+        entityManager.merge(existingEntity);
     }
 
+
     /**
-     * @param ids
+     * Performs a soft delete on all entities with the given IDs by setting their {@code timeOut} fields
+     * to the current time in milliseconds.
+     *
+     * @param ids the IDs of the entities to softly delete
+     * @throws IllegalArgumentException if any ID is {@code null}
      */
     @Override
+    @Transactional
     public void deleteAllById(Iterable<? extends ID> ids) {
 
+        for (ID id : ids) {
+            if (id == null) {
+                throw new IllegalArgumentException("ID must not be null");
+            }
+
+            deleteById(id);
+        }
     }
 
+
     /**
-     * @param entities
+     * Performs a soft delete on all provided entities by setting their {@code timeOut} fields
+     * to the current time in milliseconds.
+     *
+     * @param entities the entities to softly delete
+     * @throws IllegalArgumentException if any entity is {@code null} or does not have a valid ID
      */
     @Override
+    @Transactional
     public void deleteAll(Iterable<? extends T> entities) {
 
+        long currentTimeMillis = System.currentTimeMillis();
+
+        for (T entity : entities) {
+            if (entity == null) {
+                throw new IllegalArgumentException("Entity must not be null");
+            }
+
+            ID entityId = (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
+            if (entityId == null) {
+                throw new IllegalArgumentException("Entity must have a valid ID");
+            }
+
+            T existingEntity = entityManager.find(domainClass, entityId);
+            if (existingEntity != null) {
+                try {
+                    existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).setAccessible(true);
+                    existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).set(existingEntity, currentTimeMillis);
+                    entityManager.merge(existingEntity);
+                } catch (NoSuchFieldException | IllegalAccessException e) {
+                    throw new RuntimeException("Failed to update the timeOut field for the entity", e);
+                }
+            }
+        }
     }
+
 
     /**
-     *
+     * Performs a soft delete on all entities in the database by setting their {@code timeOut} fields
+     * to the current time in milliseconds.
      */
     @Override
+    @Transactional
     public void deleteAll() {
+        long currentTimeMillis = System.currentTimeMillis();
 
+        entityManager.createQuery(
+                        "UPDATE " + domainClass.getSimpleName() + " e SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity")
+                .setParameter("timeOut", currentTimeMillis)
+                .setParameter("infinity", Temporal.INFINITY)
+                .executeUpdate();
     }
+
 
     /**
      * Retrieves all entities of the specified type in batches, where {@code timeOut} is equal to {@link Temporal#INFINITY}.
@@ -179,7 +282,6 @@ public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomReposi
                 .getSingleResult();
         return count > 0;
     }
-
 
 
     /**
