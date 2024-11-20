@@ -1,8 +1,10 @@
 package dev.yash.jpatemporal.repository;
 
+import dev.yash.jpatemporal.domain.Temporal;
 import jakarta.annotation.Nonnull;
 import org.springframework.data.repository.CrudRepository;
 
+import javax.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,7 +19,7 @@ import java.util.Optional;
  * @param <ID> the type of the entity's identifier
  * @author Yashwanth M
  */
-public interface TemporalCustomRepository<T, ID> extends CrudRepository<T, ID> {
+public interface TemporalCustomRepository<T extends Temporal, ID> extends CrudRepository<T, ID> {
 
     /**
      * Retrieves all active entities, where the {@code timeOut} field is set to {@code Temporal.INFINITY}.
@@ -58,4 +60,16 @@ public interface TemporalCustomRepository<T, ID> extends CrudRepository<T, ID> {
      */
     @Nonnull
     Optional<T> find(String predicate);
+
+    void saveInBatch(List<T> entities);
+
+    void saveInBatch(List<T> entities, int batchSize);
+
+    void saveInBatch(List<T> entities, EntityManager entityManager);
+
+    void deleteInBatch(List<T> entities);
+
+    void deleteInBatch(List<T> entities, int batchSize);
+
+    void deleteInBatch(List<T> entities, EntityManager entityManager);
 }

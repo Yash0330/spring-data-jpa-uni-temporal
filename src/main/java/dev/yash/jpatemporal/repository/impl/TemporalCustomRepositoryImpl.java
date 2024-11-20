@@ -4,6 +4,7 @@ import dev.yash.jpatemporal.domain.Temporal;
 import dev.yash.jpatemporal.repository.TemporalCustomRepository;
 import jakarta.annotation.Nonnull;
 import jakarta.transaction.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
 import javax.persistence.EntityManager;
@@ -16,16 +17,26 @@ import java.util.Optional;
  * <p>
  * This class provides custom implementations of {@link TemporalCustomRepository},
  * adding logic for filtering entities where {@code timeOut} equals {@link Temporal#INFINITY}.
+ * It also includes batch processing capabilities for operations on large datasets.
  * </p>
+ *
+ * <p><b>Batch Size:</b></p>
+ * The default batch size for processing entities is defined by the property
+ * {@code jpa.temporal.batchSize}. If not explicitly configured, it defaults to 700.
+ * Batch processing is used in operations like {@code saveInBatch}, {@code deleteInBatch},
+ * and similar methods to enhance performance when dealing with large collections.
  *
  * @param <T>  the type of the entity extending {@code Temporal}
  * @param <ID> the type of the primary key for the entity
  * @author Yashwanth M
  */
+
 @Repository
-public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomRepository<T, ID> {
+public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements TemporalCustomRepository<T, ID> {
 
     private final Class<T> domainClass;
+    @Value("${jpa.temporal.batchSize:700}")
+    private int DEFAULT_BATCH_SIZE;
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -97,13 +108,8 @@ public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomReposi
 
         T entity = entityManager.find(domainClass, id);
         if (entity != null) {
-            try {
-                entity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).setAccessible(true);
-                entity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).set(entity, currentTimeMillis);
-                entityManager.merge(entity);
-            } catch (NoSuchFieldException | IllegalAccessException e) {
-                throw new RuntimeException("Failed to update the timeOut field for the entity with ID: " + id, e);
-            }
+            entity.setTimeOut(currentTimeMillis);
+            entityManager.merge(entity);
         }
     }
 
@@ -136,12 +142,7 @@ public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomReposi
 
         // Set the `timeOut` field to the current time in milliseconds
         long currentTimeMillis = System.currentTimeMillis();
-        try {
-            existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).setAccessible(true);
-            existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).set(existingEntity, currentTimeMillis);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new RuntimeException("Failed to update the timeOut field for the entity", e);
-        }
+        existingEntity.setTimeOut(currentTimeMillis);
 
         // Update the entity in the database
         entityManager.merge(existingEntity);
@@ -187,21 +188,7 @@ public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomReposi
                 throw new IllegalArgumentException("Entity must not be null");
             }
 
-            ID entityId = (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
-            if (entityId == null) {
-                throw new IllegalArgumentException("Entity must have a valid ID");
-            }
-
-            T existingEntity = entityManager.find(domainClass, entityId);
-            if (existingEntity != null) {
-                try {
-                    existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).setAccessible(true);
-                    existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).set(existingEntity, currentTimeMillis);
-                    entityManager.merge(existingEntity);
-                } catch (NoSuchFieldException | IllegalAccessException e) {
-                    throw new RuntimeException("Failed to update the timeOut field for the entity", e);
-                }
-            }
+            delete(entity);
         }
     }
 
@@ -303,6 +290,326 @@ public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomReposi
     }
 
     /**
+     * Performs a batch save operation on the provided list of entities.
+     * <p>
+     * This method updates the {@code timeOut} field of existing entities with the current time
+     * in milliseconds and inserts new entities into the database as active entities with their
+     * {@code timeOut} field set to {@code Temporal.INFINITY}.
+     * The operation is executed in batches to optimize performance for large datasets.
+     * </p>
+     *
+     * @param entities the list of entities to save in batch
+     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
+     */
+    @Transactional
+    public void saveInBatch(List<T> entities) {
+        if (entities == null || entities.isEmpty()) {
+            throw new IllegalArgumentException("Entities list must not be null or empty.");
+        }
+
+        long currentTimeMillis = System.currentTimeMillis();
+
+        // Detach all entities to prevent unintended persistence context interference
+        entities.forEach(entityManager::detach);
+
+        // Process entities in batches
+        for (int i = 0; i < entities.size(); i += DEFAULT_BATCH_SIZE) {
+            // Create a batch slice
+            List<T> batch = entities.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, entities.size()));
+
+            // Update the timeOut field for existing entities in the batch
+            entityManager.createQuery(
+                            "UPDATE " + domainClass.getSimpleName() + " e " +
+                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
+                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
+                                    "AND e.id IN :ids")
+                    .setParameter("ids", batch.stream()
+                            .map(entity -> (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
+                            .toList())
+                    .setParameter("timeOut", currentTimeMillis)
+                    .setParameter("infinity", Temporal.INFINITY)
+                    .executeUpdate();
+
+            // Persist new entities and update detached instances
+            batch.forEach(entity -> {
+                entity.setTimeIn(currentTimeMillis);
+                entity.setTimeOut(Temporal.INFINITY);
+                entityManager.persist(entity);
+            });
+
+            // Flush changes to the database
+            entityManager.flush();
+
+            // Detach entities to clear them from the persistence context
+            batch.forEach(entityManager::detach);
+        }
+    }
+
+
+    /**
+     * Performs a batch save operation on the provided list of entities with a specified batch size.
+     * <p>
+     * This method updates the {@code timeOut} field of existing entities with the current time in milliseconds
+     * and inserts new entities as active, with their {@code timeOut} field set to {@code Temporal.INFINITY}.
+     * </p>
+     * <p>
+     * The operation is executed in batches of the specified size to optimize performance for large datasets.
+     * </p>
+     *
+     * @param entities  the list of entities to save in batch
+     * @param batchSize the size of each batch for processing
+     * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if batchSize is less than 1
+     */
+    @Transactional
+    public void saveInBatch(List<T> entities, int batchSize) {
+        if (entities == null || entities.isEmpty()) {
+            throw new IllegalArgumentException("Entities list must not be null or empty.");
+        }
+        if (batchSize < 1) {
+            throw new IllegalArgumentException("Batch size must be greater than 0.");
+        }
+
+        long currentTimeMillis = System.currentTimeMillis();
+
+        // Detach all entities to prevent unintended persistence context interference
+        entities.forEach(entityManager::detach);
+
+        // Process entities in batches
+        for (int i = 0; i < entities.size(); i += batchSize) {
+            // Create a batch slice
+            List<T> batch = entities.subList(i, Math.min(i + batchSize, entities.size()));
+
+            // Update the timeOut field for existing entities in the batch
+            entityManager.createQuery(
+                            "UPDATE " + domainClass.getSimpleName() + " e " +
+                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
+                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
+                                    "AND e.id IN :ids")
+                    .setParameter("ids", batch.stream()
+                            .map(entity -> (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
+                            .toList())
+                    .setParameter("timeOut", currentTimeMillis)
+                    .setParameter("infinity", Temporal.INFINITY)
+                    .executeUpdate();
+
+            // Persist new entities and update detached instances
+            batch.forEach(entity -> {
+                entity.setTimeIn(currentTimeMillis);
+                entity.setTimeOut(Temporal.INFINITY);
+                entityManager.persist(entity);
+            });
+
+            // Flush changes to the database
+            entityManager.flush();
+
+            // Detach entities to clear them from the persistence context
+            batch.forEach(entityManager::detach);
+        }
+    }
+
+
+    /**
+     * Performs a batch save operation using the specified {@link EntityManager}.
+     * <p>
+     * This method updates the {@code timeOut} field of existing entities with the current time in milliseconds
+     * and inserts new entities as active, with their {@code timeOut} field set to {@code Temporal.INFINITY}.
+     * </p>
+     * <p>
+     * The operation is executed in batches of the default batch size {@code DEFAULT_BATCH_SIZE} to optimize performance.
+     * </p>
+     *
+     * @param entities the list of entities to save in batch
+     * @param em       the {@link EntityManager} to use for the operation
+     * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if the {@code EntityManager} is {@code null}
+     */
+    @Transactional
+    public void saveInBatch(List<T> entities, EntityManager em) {
+        if (entities == null || entities.isEmpty()) {
+            throw new IllegalArgumentException("Entities list must not be null or empty.");
+        }
+        if (em == null) {
+            throw new IllegalArgumentException("EntityManager must not be null.");
+        }
+
+        long currentTimeMillis = System.currentTimeMillis();
+
+        // Detach all entities to prevent unintended persistence context interference
+        entities.forEach(em::detach);
+
+        // Process entities in batches
+        for (int i = 0; i < entities.size(); i += DEFAULT_BATCH_SIZE) {
+            // Create a batch slice
+            List<T> batch = entities.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, entities.size()));
+
+            // Update the timeOut field for existing entities in the batch
+            em.createQuery(
+                            "UPDATE " + domainClass.getSimpleName() + " e " +
+                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
+                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
+                                    "AND e.id IN :ids")
+                    .setParameter("ids", batch.stream()
+                            .map(entity -> (ID) em.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
+                            .toList())
+                    .setParameter("timeOut", currentTimeMillis)
+                    .setParameter("infinity", Temporal.INFINITY)
+                    .executeUpdate();
+
+            // Persist new entities and update detached instances
+            batch.forEach(entity -> {
+                entity.setTimeIn(currentTimeMillis);
+                entity.setTimeOut(Temporal.INFINITY);
+                em.persist(entity);
+            });
+
+            // Flush changes to the database
+            em.flush();
+
+            // Detach entities to clear them from the persistence context
+            batch.forEach(em::detach);
+        }
+    }
+
+
+    /**
+     * Performs a soft delete operation on the provided list of entities in batches.
+     * <p>
+     * This method updates the {@code timeOut} field of existing entities to the current time
+     * in milliseconds to mark them as inactive (soft delete).
+     * The operation is executed in batches to optimize performance for large datasets.
+     * </p>
+     *
+     * @param entities the list of entities to softly delete in batch
+     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
+     */
+    @Transactional
+    public void deleteInBatch(List<T> entities) {
+        if (entities == null || entities.isEmpty()) {
+            throw new IllegalArgumentException("Entities list must not be null or empty.");
+        }
+
+        long currentTimeMillis = System.currentTimeMillis();
+
+        // Detach all entities to prevent unintended persistence context interference
+        entities.forEach(entityManager::detach);
+
+        // Process entities in batches
+        for (int i = 0; i < entities.size(); i += DEFAULT_BATCH_SIZE) {
+            // Create a batch slice
+            List<T> batch = entities.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, entities.size()));
+
+            // Update the timeOut field for existing entities in the batch
+            entityManager.createQuery(
+                            "UPDATE " + domainClass.getSimpleName() + " e " +
+                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
+                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
+                                    "AND e.id IN :ids")
+                    .setParameter("ids", batch.stream()
+                            .map(entity -> (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
+                            .toList())
+                    .setParameter("timeOut", currentTimeMillis)
+                    .setParameter("infinity", Temporal.INFINITY)
+                    .executeUpdate();
+
+            // Detach entities to clear them from the persistence context
+            batch.forEach(entityManager::detach);
+        }
+    }
+
+    /**
+     * Performs a soft delete operation on the provided list of entities in batches of a specified size.
+     * <p>
+     * This method updates the {@code timeOut} field of existing entities to the current time
+     * in milliseconds to mark them as inactive (soft delete). The operation is executed in
+     * batches of the given size to optimize performance for large datasets.
+     * </p>
+     *
+     * @param entities  the list of entities to softly delete in batch
+     * @param batchSize the number of entities to process in each batch
+     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
+     */
+    @Override
+    public void deleteInBatch(List<T> entities, int batchSize) {
+        if (entities == null || entities.isEmpty()) {
+            throw new IllegalArgumentException("Entities list must not be null or empty.");
+        }
+
+        long currentTimeMillis = System.currentTimeMillis();
+
+        // Detach all entities to prevent unintended persistence context interference
+        entities.forEach(entityManager::detach);
+
+        // Process entities in batches
+        for (int i = 0; i < entities.size(); i += batchSize) {
+            // Create a batch slice
+            List<T> batch = entities.subList(i, Math.min(i + batchSize, entities.size()));
+
+            // Update the timeOut field for existing entities in the batch
+            entityManager.createQuery(
+                            "UPDATE " + domainClass.getSimpleName() + " e " +
+                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
+                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
+                                    "AND e.id IN :ids")
+                    .setParameter("ids", batch.stream()
+                            .map(entity -> (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
+                            .toList())
+                    .setParameter("timeOut", currentTimeMillis)
+                    .setParameter("infinity", Temporal.INFINITY)
+                    .executeUpdate();
+
+            // Detach entities to clear them from the persistence context
+            batch.forEach(entityManager::detach);
+        }
+    }
+
+
+    /**
+     * Performs a soft delete operation on the provided list of entities using the given {@link EntityManager}.
+     * <p>
+     * This method updates the {@code timeOut} field of existing entities to the current time
+     * in milliseconds to mark them as inactive (soft delete). The operation is executed in
+     * batches of the default size to optimize performance for large datasets.
+     * </p>
+     *
+     * @param entities the list of entities to softly delete in batch
+     * @param em       the {@link EntityManager} used to perform the operation
+     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
+     */
+    @Override
+    public void deleteInBatch(List<T> entities, EntityManager em) {
+        if (entities == null || entities.isEmpty()) {
+            throw new IllegalArgumentException("Entities list must not be null or empty.");
+        }
+
+        long currentTimeMillis = System.currentTimeMillis();
+
+        // Detach all entities to prevent unintended persistence context interference
+        entities.forEach(em::detach);
+
+        // Process entities in batches
+        for (int i = 0; i < entities.size(); i += DEFAULT_BATCH_SIZE) {
+            // Create a batch slice
+            List<T> batch = entities.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, entities.size()));
+
+            // Update the timeOut field for existing entities in the batch
+            em.createQuery(
+                            "UPDATE " + domainClass.getSimpleName() + " e " +
+                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
+                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
+                                    "AND e.id IN :ids")
+                    .setParameter("ids", batch.stream()
+                            .map(entity -> (ID) em.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
+                            .toList())
+                    .setParameter("timeOut", currentTimeMillis)
+                    .setParameter("infinity", Temporal.INFINITY)
+                    .executeUpdate();
+
+            // Detach entities to clear them from the persistence context
+            batch.forEach(em::detach);
+        }
+    }
+
+
+    /**
      * Saves a single entity to the database.
      * <p>
      * If the entity already exists, its {@code timeOut} is updated to the current time in milliseconds,
@@ -328,28 +635,13 @@ public class TemporalCustomRepositoryImpl<T, ID> implements TemporalCustomReposi
         if (existingEntityOpt.isPresent()) {
             // Update the `timeOut` field of the existing entity
             T existingEntity = existingEntityOpt.get();
-            try {
-                // Use reflection to set the `timeOut` field
-                existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).setAccessible(true);
-                existingEntity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).set(existingEntity, currentTimeMillis);
-            } catch (NoSuchFieldException | IllegalAccessException e) {
-                throw new RuntimeException("Failed to update the timeOut field for the existing entity", e);
-            }
+            existingEntity.setTimeOut(currentTimeMillis);
             entityManager.merge(existingEntity);
         }
 
         // Set the `timeIn` and `timeOut` fields for the new entity
-        try {
-            // Use reflection to set the `timeIn` field
-            entity.getClass().getDeclaredField(Temporal.TIME_IN_FIELD).setAccessible(true);
-            entity.getClass().getDeclaredField(Temporal.TIME_IN_FIELD).set(entity, currentTimeMillis);
-
-            // Use reflection to set the `timeOut` field
-            entity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).setAccessible(true);
-            entity.getClass().getDeclaredField(Temporal.TIME_OUT_FIELD).set(entity, Temporal.INFINITY);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new RuntimeException("Failed to set the timeIn or timeOut field for the new entity", e);
-        }
+        entity.setTimeIn(currentTimeMillis);
+        entity.setTimeOut(Temporal.INFINITY);
 
         // Persist the new entity
         entityManager.persist(entity);
