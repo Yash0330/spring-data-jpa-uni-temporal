@@ -181,8 +181,6 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
     @Transactional
     public void deleteAll(Iterable<? extends T> entities) {
 
-        long currentTimeMillis = System.currentTimeMillis();
-
         for (T entity : entities) {
             if (entity == null) {
                 throw new IllegalArgumentException("Entity must not be null");
