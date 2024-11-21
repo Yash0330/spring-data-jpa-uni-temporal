@@ -71,7 +71,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      */
     @Override
     @Nonnull
-    public Iterable<T> findAllById(Iterable<ID> ids) {
+    public Iterable<T> findAllById(@Nonnull Iterable<ID> ids) {
         return entityManager.createQuery(
                         "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e.id IN :ids AND e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
                 .setParameter("ids", ids)
@@ -103,7 +103,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      * @param id the ID of the entities to softly delete
      */
     @Override
-    public void deleteById(ID id) {
+    public void deleteById(@Nonnull ID id) {
         long currentTimeMillis = System.currentTimeMillis();
 
         T entity = entityManager.find(domainClass, id);
@@ -125,7 +125,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      */
     @Override
     @Transactional
-    public void delete(T entity) {
+    public void delete(@Nonnull T entity) {
 
         // Fetch the ID of the entity
         ID entityId = (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
@@ -237,7 +237,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      */
     @Override
     @Nonnull
-    public Optional<T> findById(ID id) {
+    public Optional<T> findById(@Nonnull ID id) {
         T entity = entityManager.createQuery(
                         "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e.id = :id AND e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
                 .setParameter("id", id)
@@ -259,7 +259,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      * @return {@code true} if the entity exists and its {@code timeOut} is equal to {@link Temporal#INFINITY}, otherwise {@code false}
      */
     @Override
-    public boolean existsById(ID id) {
+    public boolean existsById(@Nonnull ID id) {
         Long count = entityManager.createQuery(
                         "SELECT COUNT(e) FROM " + domainClass.getSimpleName() + " e WHERE e.id = :id AND e." + Temporal.TIME_OUT_FIELD + " = :timeOut", Long.class)
                 .setParameter("id", id)
@@ -620,7 +620,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
     @Override
     @Transactional
     @Nonnull
-    public <S extends T> S save(S entity) {
+    public <S extends T> S save(@Nonnull S entity) {
         // Get the current time in milliseconds
         long currentTimeMillis = System.currentTimeMillis();
 

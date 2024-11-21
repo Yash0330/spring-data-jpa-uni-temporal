@@ -39,7 +39,7 @@ import javax.persistence.*;
 @MappedSuperclass
 @SuppressWarnings("checkstyle:MemberName")
 @Table(uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"id", "TIME_OUT"})
+        @UniqueConstraint(columnNames = {"id", "TIME_OUT"}), @UniqueConstraint(columnNames = {"id", "TIME_IN"})
 })
 public abstract class Temporal {
     /**
@@ -74,7 +74,6 @@ public abstract class Temporal {
      * Start time of the temporal entity, represented as a Unix timestamp in milliseconds.
      * This field is mapped to the database column {@code TIME_IN} and cannot be null.
      */
-    @Id
     @Column(name = "TIME_IN", nullable = false)
     private Long timeIn;
 

@@ -49,7 +49,7 @@ public interface TemporalCustomRepository<T extends Temporal, ID> extends CrudRe
      */
     @Override
     @Nonnull
-    Optional<T> findById(ID id);
+    Optional<T> findById(@Nonnull ID id);
 
     /**
      * Retrieves an active entity based on a custom predicate, where the {@code timeOut} field is set
