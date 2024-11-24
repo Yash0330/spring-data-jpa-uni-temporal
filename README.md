@@ -164,7 +164,7 @@ public class MyService {
 
 The following 2 functionalities aren't currently supported with this library. An exception may be thrown at spring boot start-up if you try to use them. I'll try and work on those in the future.
 
-- Does not support [derived query methods](https://www.baeldung.com/spring-data-derived-queries), e.g. `findByNameAndAddress`, `countByNameAndAddress`, etc. However, you could create methods and use `@Query` annotation to specify a query to run (e.g. [Repository.java](src/test/java/dev/claudio/jpatemporal/repository/Repository.java)).
+- Does not support [derived query methods](https://www.baeldung.com/spring-data-derived-queries), e.g. `findByNameAndAddress`, `countByNameAndAddress`, etc. However, you could create methods and use `@Query` annotation to specify a query to run.
 - Does not support relations, e.g. `@OneToOne`, `@OneToMany`, etc.
 
 # Next Steps
