@@ -8,7 +8,7 @@
         <version>3.3.6</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>dev.yash</groupId>
+    <groupId>io.github.yash0330</groupId>
     <artifactId>spring-data-jpa-uni-temporal</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>spring-data-jpa-uni-temporal</name>
