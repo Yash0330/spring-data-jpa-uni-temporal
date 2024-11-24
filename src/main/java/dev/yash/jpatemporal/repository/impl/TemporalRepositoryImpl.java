@@ -69,7 +69,7 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * @return a new list containing unique elements in order of their last occurrence
      * @throws NullPointerException if the input list is null
      */
-    private static <T> List<T> filterDuplicatesKeepLast(final List<T> entities) {
+    public static <T> List<T> filterDuplicatesKeepLast(final List<T> entities) {
         Set<T> seen = new HashSet<>();
         List<T> result = new ArrayList<>(entities.size());
 
@@ -398,6 +398,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * in milliseconds and inserts new entities into the database as active entities with their
      * {@code timeOut} field set to {@code Temporal.INFINITY}.
      * The operation is executed in batches to optimize performance for large datasets.
+     *  The method ensures efficient batch processing while avoiding
+     *  duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities the list of entities to save in batch
@@ -456,6 +458,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * </p>
      * <p>
      * The operation is executed in batches of the specified size to optimize performance for large datasets.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities  the list of entities to save in batch
@@ -518,6 +522,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * </p>
      * <p>
      * The operation is executed in batches of the default batch size {@code DEFAULT_BATCH_SIZE} to optimize performance.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities the list of entities to save in batch
@@ -578,6 +584,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * This method updates the {@code timeOut} field of existing entities to the current time
      * in milliseconds to mark them as inactive (soft delete).
      * The operation is executed in batches to optimize performance for large datasets.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities the list of entities to softly delete in batch
@@ -624,6 +632,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * This method updates the {@code timeOut} field of existing entities to the current time
      * in milliseconds to mark them as inactive (soft delete). The operation is executed in
      * batches of the given size to optimize performance for large datasets.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities  the list of entities to softly delete in batch
@@ -671,6 +681,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * This method updates the {@code timeOut} field of existing entities to the current time
      * in milliseconds to mark them as inactive (soft delete). The operation is executed in
      * batches of the default size to optimize performance for large datasets.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities the list of entities to softly delete in batch
