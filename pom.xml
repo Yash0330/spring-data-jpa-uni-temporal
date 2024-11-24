@@ -10,7 +10,7 @@
     </parent>
     <groupId>io.github.yash0330</groupId>
     <artifactId>spring-data-jpa-uni-temporal</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.1</version>
     <name>spring-data-jpa-uni-temporal</name>
     <description>Temporal auditing extension of the Spring Data JPA module for UNI Temporal</description>
     <url/>
