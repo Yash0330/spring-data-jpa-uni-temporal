@@ -1,21 +1,22 @@
 package dev.yash.jpatemporal.repository.impl;
 
 import dev.yash.jpatemporal.domain.Temporal;
-import dev.yash.jpatemporal.repository.TemporalCustomRepository;
+import dev.yash.jpatemporal.repository.TemporalRepository;
 import jakarta.annotation.Nonnull;
+import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.support.JpaEntityInformation;
+import org.springframework.data.jpa.repository.support.SimpleJpaRepository;
+import org.springframework.data.repository.NoRepositoryBean;
 
-import javax.persistence.EntityManager;
-import javax.persistence.PersistenceContext;
 import java.util.List;
 import java.util.Optional;
 
 /**
  * Custom repository implementation for handling temporal entities.
  * <p>
- * This class provides custom implementations of {@link TemporalCustomRepository},
+ * This class provides custom implementations of {@link TemporalRepository},
  * adding logic for filtering entities where {@code timeOut} equals {@link Temporal#INFINITY}.
  * It also includes batch processing capabilities for operations on large datasets.
  * </p>
@@ -31,23 +32,21 @@ import java.util.Optional;
  * @author Yashwanth M
  */
 
-@Repository
-public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements TemporalCustomRepository<T, ID> {
+@NoRepositoryBean
+public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRepository<T, ID> implements TemporalRepository<T, ID> {
 
     private final Class<T> domainClass;
-    @Value("${jpa.temporal.batchSize:700}")
-    private int DEFAULT_BATCH_SIZE;
-    @PersistenceContext
-    private EntityManager entityManager;
+    private final EntityManager entityManager;
 
-    /**
-     * Constructor to initialize the repository with the specific entity class.
-     *
-     * @param domainClass the entity class for which this repository is created
-     */
-    public TemporalCustomRepositoryImpl(Class<T> domainClass) {
-        this.domainClass = domainClass;
+    @Value("${jpa.temporal.batchSize:700}")
+    private int DEFAULT_BATCH_SIZE = 700;
+
+    public TemporalRepositoryImpl(JpaEntityInformation<T, ID> entityInformation, EntityManager entityManager) {
+        super(entityInformation, entityManager);
+        this.domainClass = entityInformation.getJavaType();
+        this.entityManager = entityManager;
     }
+
 
     /**
      * Retrieves all entities of the specified type where {@code timeOut} is equal to {@link Temporal#INFINITY}.
@@ -71,7 +70,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      */
     @Override
     @Nonnull
-    public Iterable<T> findAllById(@Nonnull Iterable<ID> ids) {
+    public List<T> findAllById(@Nonnull Iterable<ID> ids) {
         return entityManager.createQuery(
                         "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e.id IN :ids AND e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
                 .setParameter("ids", ids)
@@ -111,6 +110,8 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
             entity.setTimeOut(currentTimeMillis);
             entityManager.merge(entity);
         }
+
+        entityManager.flush();
     }
 
     /**
@@ -146,6 +147,8 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
 
         // Update the entity in the database
         entityManager.merge(existingEntity);
+
+        entityManager.flush();
     }
 
 
@@ -158,7 +161,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      */
     @Override
     @Transactional
-    public void deleteAllById(Iterable<? extends ID> ids) {
+    public void deleteAllById(@Nonnull Iterable<? extends ID> ids) {
 
         for (ID id : ids) {
             if (id == null) {
@@ -179,7 +182,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      */
     @Override
     @Transactional
-    public void deleteAll(Iterable<? extends T> entities) {
+    public void deleteAll(@Nonnull Iterable<? extends T> entities) {
 
         for (T entity : entities) {
             if (entity == null) {
@@ -205,27 +208,8 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
                 .setParameter("timeOut", currentTimeMillis)
                 .setParameter("infinity", Temporal.INFINITY)
                 .executeUpdate();
-    }
 
-
-    /**
-     * Retrieves all entities of the specified type in batches, where {@code timeOut} is equal to {@link Temporal#INFINITY}.
-     * <p>
-     * This method fetches entities in batches to avoid memory overload when dealing with large datasets.
-     * The {@code fetchSize} is set to the provided {@code batchSize} to control how many rows are retrieved in a single database call.
-     * </p>
-     *
-     * @param batchSize the number of entities to retrieve per batch
-     * @return a list of entities with {@code timeOut} set to {@link Temporal#INFINITY}
-     */
-    @Override
-    @Nonnull
-    public List<T> findAllByBatchSize(int batchSize) {
-        return entityManager.createQuery(
-                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
-                .setParameter("timeOut", Temporal.INFINITY)
-                .setHint("org.hibernate.fetchSize", batchSize)  // Set the fetch size hint to the batch size
-                .getResultList();
+        entityManager.flush();
     }
 
 
@@ -270,6 +254,87 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
 
 
     /**
+     * Saves a single entity to the database.
+     * <p>
+     * If the entity already exists, its {@code timeOut} is updated to the current time in milliseconds,
+     * and a new entity is saved with {@code timeIn} set to the current time and {@code timeOut} set to {@link Temporal#INFINITY}.
+     * </p>
+     *
+     * @param entity the entity to save
+     * @return the new saved entity with {@code timeOut} set to {@link Temporal#INFINITY}
+     */
+    @Override
+    @Transactional
+    @Nonnull
+    public <S extends T> S save(@Nonnull S entity) {
+        entityManager.detach(entity);
+        // Get the current time in milliseconds
+        long currentTimeMillis = System.currentTimeMillis();
+
+        // Get the ID of the entity
+        ID entityId = (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
+
+        // Check if the entity exists
+        Optional<T> existingEntityOpt = findById(entityId);
+
+        if (existingEntityOpt.isPresent()) {
+            // Update the `timeOut` field of the existing entity
+            T existingEntity = existingEntityOpt.get();
+            existingEntity.setTimeOut(currentTimeMillis);
+            entityManager.merge(existingEntity);
+            entityManager.flush();
+        }
+
+        // Set the `timeIn` and `timeOut` fields for the new entity
+        entity.setTimeIn(currentTimeMillis);
+        entity.setTimeOut(Temporal.INFINITY);
+
+        // Persist the new entity
+        entityManager.persist(entity);
+
+        entityManager.flush();
+
+        return entity;
+    }
+
+    /**
+     * Saves multiple entities to the database.
+     * Each entity is either persisted if new or merged if already existing.
+     *
+     * @param entities the list of entities to save
+     * @return the list of saved entities
+     */
+    @Override
+    @Nonnull
+    @Transactional
+    public <S extends T> List<S> saveAll(@Nonnull Iterable<S> entities) {
+        for (T entity : entities) {
+            save(entity);
+        }
+        return (List<S>) entities;
+    }
+
+    /**
+     * Retrieves all entities of the specified type in batches, where {@code timeOut} is equal to {@link Temporal#INFINITY}.
+     * <p>
+     * This method fetches entities in batches to avoid memory overload when dealing with large datasets.
+     * The {@code fetchSize} is set to the provided {@code batchSize} to control how many rows are retrieved in a single database call.
+     * </p>
+     *
+     * @param batchSize the number of entities to retrieve per batch
+     * @return a list of entities with {@code timeOut} set to {@link Temporal#INFINITY}
+     */
+    @Override
+    @Nonnull
+    public List<T> findAllByBatchSize(int batchSize) {
+        return entityManager.createQuery(
+                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
+                .setParameter("timeOut", Temporal.INFINITY)
+                .setHint("org.hibernate.fetchSize", batchSize)  // Set the fetch size hint to the batch size
+                .getResultList();
+    }
+
+    /**
      * Finds a single entity by applying a custom predicate and ensuring {@code timeOut} is equal to {@link Temporal#INFINITY}.
      *
      * @param predicate the custom predicate for filtering entities
@@ -300,6 +365,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
     @Transactional
+    @Override
     public void saveInBatch(List<T> entities) {
         if (entities == null || entities.isEmpty()) {
             throw new IllegalArgumentException("Entities list must not be null or empty.");
@@ -328,6 +394,9 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
                     .setParameter("infinity", Temporal.INFINITY)
                     .executeUpdate();
 
+            // Flush changes to the database
+            entityManager.flush();
+
             // Persist new entities and update detached instances
             batch.forEach(entity -> {
                 entity.setTimeIn(currentTimeMillis);
@@ -342,7 +411,6 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
             batch.forEach(entityManager::detach);
         }
     }
-
 
     /**
      * Performs a batch save operation on the provided list of entities with a specified batch size.
@@ -359,6 +427,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if batchSize is less than 1
      */
     @Transactional
+    @Override
     public void saveInBatch(List<T> entities, int batchSize) {
         if (entities == null || entities.isEmpty()) {
             throw new IllegalArgumentException("Entities list must not be null or empty.");
@@ -389,6 +458,9 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
                     .setParameter("timeOut", currentTimeMillis)
                     .setParameter("infinity", Temporal.INFINITY)
                     .executeUpdate();
+
+            // Flush changes to the database
+            entityManager.flush();
 
             // Persist new entities and update detached instances
             batch.forEach(entity -> {
@@ -421,6 +493,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if the {@code EntityManager} is {@code null}
      */
     @Transactional
+    @Override
     public void saveInBatch(List<T> entities, EntityManager em) {
         if (entities == null || entities.isEmpty()) {
             throw new IllegalArgumentException("Entities list must not be null or empty.");
@@ -452,6 +525,9 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
                     .setParameter("infinity", Temporal.INFINITY)
                     .executeUpdate();
 
+            // Flush changes to the database
+            entityManager.flush();
+
             // Persist new entities and update detached instances
             batch.forEach(entity -> {
                 entity.setTimeIn(currentTimeMillis);
@@ -480,6 +556,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
     @Transactional
+    @Override
     public void deleteInBatch(List<T> entities) {
         if (entities == null || entities.isEmpty()) {
             throw new IllegalArgumentException("Entities list must not be null or empty.");
@@ -508,6 +585,9 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
                     .setParameter("infinity", Temporal.INFINITY)
                     .executeUpdate();
 
+            // Flush changes to the database
+            entityManager.flush();
+
             // Detach entities to clear them from the persistence context
             batch.forEach(entityManager::detach);
         }
@@ -526,6 +606,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
     @Override
+    @Transactional
     public void deleteInBatch(List<T> entities, int batchSize) {
         if (entities == null || entities.isEmpty()) {
             throw new IllegalArgumentException("Entities list must not be null or empty.");
@@ -554,6 +635,9 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
                     .setParameter("infinity", Temporal.INFINITY)
                     .executeUpdate();
 
+            // Flush changes to the database
+            entityManager.flush();
+
             // Detach entities to clear them from the persistence context
             batch.forEach(entityManager::detach);
         }
@@ -573,6 +657,7 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
     @Override
+    @Transactional
     public void deleteInBatch(List<T> entities, EntityManager em) {
         if (entities == null || entities.isEmpty()) {
             throw new IllegalArgumentException("Entities list must not be null or empty.");
@@ -601,66 +686,12 @@ public class TemporalCustomRepositoryImpl<T extends Temporal, ID> implements Tem
                     .setParameter("infinity", Temporal.INFINITY)
                     .executeUpdate();
 
+            // Flush changes to the database
+            entityManager.flush();
+
             // Detach entities to clear them from the persistence context
             batch.forEach(em::detach);
         }
-    }
-
-
-    /**
-     * Saves a single entity to the database.
-     * <p>
-     * If the entity already exists, its {@code timeOut} is updated to the current time in milliseconds,
-     * and a new entity is saved with {@code timeIn} set to the current time and {@code timeOut} set to {@link Temporal#INFINITY}.
-     * </p>
-     *
-     * @param entity the entity to save
-     * @return the new saved entity with {@code timeOut} set to {@link Temporal#INFINITY}
-     */
-    @Override
-    @Transactional
-    @Nonnull
-    public <S extends T> S save(@Nonnull S entity) {
-        // Get the current time in milliseconds
-        long currentTimeMillis = System.currentTimeMillis();
-
-        // Get the ID of the entity
-        ID entityId = (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
-
-        // Check if the entity exists
-        Optional<T> existingEntityOpt = findById(entityId);
-
-        if (existingEntityOpt.isPresent()) {
-            // Update the `timeOut` field of the existing entity
-            T existingEntity = existingEntityOpt.get();
-            existingEntity.setTimeOut(currentTimeMillis);
-            entityManager.merge(existingEntity);
-        }
-
-        // Set the `timeIn` and `timeOut` fields for the new entity
-        entity.setTimeIn(currentTimeMillis);
-        entity.setTimeOut(Temporal.INFINITY);
-
-        // Persist the new entity
-        entityManager.persist(entity);
-
-        return entity;
-    }
-
-    /**
-     * Saves multiple entities to the database.
-     * Each entity is either persisted if new or merged if already existing.
-     *
-     * @param entities the list of entities to save
-     * @return the list of saved entities
-     */
-    @Override
-    @Nonnull
-    public <S extends T> Iterable<S> saveAll(Iterable<S> entities) {
-        for (T entity : entities) {
-            save(entity);
-        }
-        return entities;
     }
 }
 

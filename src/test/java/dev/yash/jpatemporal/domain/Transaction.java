@@ -1,19 +1,21 @@
 package dev.yash.jpatemporal.domain;
 
-import lombok.EqualsAndHashCode;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
-import javax.persistence.Entity;
-import javax.persistence.Id;
-import javax.persistence.Table;
-
 @Entity
-@Table(name = "transactions")
+@Table(
+        name = "transactions",
+        uniqueConstraints = {
+                @UniqueConstraint(columnNames = {"transactionId", "TIME_OUT"}),
+        }
+)
 @Getter
 @Setter
 @ToString
+@IdClass(TransactionId.class)
 public class Transaction extends Temporal {
     @Id
     private String transactionId;

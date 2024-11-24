@@ -1,9 +1,10 @@
 package dev.yash.jpatemporal.domain;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Id;
+import jakarta.persistence.MappedSuperclass;
 import lombok.Getter;
 import lombok.Setter;
-
-import javax.persistence.*;
 
 /**
  * Abstract base class for temporal entities.
@@ -38,10 +39,37 @@ import javax.persistence.*;
 @Setter
 @MappedSuperclass
 @SuppressWarnings("checkstyle:MemberName")
-@Table(uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"id", "TIME_OUT"}), @UniqueConstraint(columnNames = {"id", "TIME_IN"})
-})
 public abstract class Temporal {
+    /**
+     * Constant representing an infinite or undefined end time.
+     * This is typically used when the temporal entity does not have a specific
+     * end time or when the end time extends indefinitely.
+     */
+    public static final Long INFINITY = Long.MAX_VALUE;
+    /**
+     * Field name representing the start time (time-in) property.
+     * This is useful for referring to the database column or property name programmatically.
+     */
+    public static final String TIME_IN_FIELD = "timeIn";
+    /**
+     * Field name representing the end time (time-out) property.
+     * This is useful for referring to the database column or property name programmatically.
+     */
+    public static final String TIME_OUT_FIELD = "timeOut";
+    /**
+     * Start time of the temporal entity, represented as a Unix timestamp in milliseconds.
+     * This field is mapped to the database column {@code TIME_IN} and cannot be null.
+     */
+    @Id
+    @Column(name = "TIME_IN", nullable = false)
+    private Long timeIn;
+    /**
+     * End time of the temporal entity, represented as a Unix timestamp in milliseconds.
+     * This field is mapped to the database column {@code TIME_OUT} and cannot be null.
+     */
+    @Column(name = "TIME_OUT", nullable = false)
+    private Long timeOut;
+
     /**
      * Default constructor.
      * This constructor is intentionally empty to allow subclasses to define
@@ -50,38 +78,5 @@ public abstract class Temporal {
     protected Temporal() {
         // No-op constructor
     }
-
-    /**
-     * Constant representing an infinite or undefined end time.
-     * This is typically used when the temporal entity does not have a specific
-     * end time or when the end time extends indefinitely.
-     */
-    public static final Long INFINITY = Long.MAX_VALUE;
-
-    /**
-     * Field name representing the start time (time-in) property.
-     * This is useful for referring to the database column or property name programmatically.
-     */
-    public static final String TIME_IN_FIELD = "timeIn";
-
-    /**
-     * Field name representing the end time (time-out) property.
-     * This is useful for referring to the database column or property name programmatically.
-     */
-    public static final String TIME_OUT_FIELD = "timeOut";
-
-    /**
-     * Start time of the temporal entity, represented as a Unix timestamp in milliseconds.
-     * This field is mapped to the database column {@code TIME_IN} and cannot be null.
-     */
-    @Column(name = "TIME_IN", nullable = false)
-    private Long timeIn;
-
-    /**
-     * End time of the temporal entity, represented as a Unix timestamp in milliseconds.
-     * This field is mapped to the database column {@code TIME_OUT} and cannot be null.
-     */
-    @Column(name = "TIME_OUT", nullable = false)
-    private Long timeOut;
 }
 
