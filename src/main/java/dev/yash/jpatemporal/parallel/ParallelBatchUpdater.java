@@ -35,6 +35,11 @@ public class ParallelBatchUpdater {
 
     private final EntityManagerFactory entityManagerFactory;
 
+    /**
+     * Constructs a new {@code ParallelBatchUpdater}.
+     *
+     * @param entityManagerFactory The factory used to create {@link EntityManager} instances.
+     */
     public ParallelBatchUpdater(EntityManagerFactory entityManagerFactory) {
         this.entityManagerFactory = entityManagerFactory;
     }
@@ -185,8 +190,8 @@ public class ParallelBatchUpdater {
      * <p><strong>Example Usage:</strong></p>
      * <pre>
      * {@code
-     * List<MyEntity> entities = getEntities();
-     * TemporalRepository<MyEntity, Long> repository = getRepository();
+     * List<T> entities = getEntities();
+     * TemporalRepository<T, Long> repository = getRepository();
      * deleteInParallel(entities, 4, repository);
      * }
      * </pre>

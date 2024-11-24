@@ -37,7 +37,6 @@ import static dev.yash.jpatemporal.domain.Temporal.*;
  * @param <ID> the type of the primary key for the entity
  * @author Yashwanth M
  */
-
 @NoRepositoryBean
 public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRepository<T, ID> implements TemporalRepository<T, ID> {
 
@@ -47,6 +46,12 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
     @Value("${jpa.temporal.batchSize:700}")
     private int DEFAULT_BATCH_SIZE = 700;
 
+    /**
+     * Constructs a new {@code TemporalRepositoryImpl}.
+     *
+     * @param entityInformation Metadata about the entity, including its type and identifier.
+     * @param entityManager     The {@code EntityManager} to be used for interacting with the persistence context.
+     */
     public TemporalRepositoryImpl(JpaEntityInformation<T, ID> entityInformation, EntityManager entityManager) {
         super(entityInformation, entityManager);
         this.domainClass = entityInformation.getJavaType();
@@ -737,22 +742,13 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * equals a predefined value.
      * </p>
      *
-     * <p><b>Behavior:</b></p>
      * <ul>
      *     <li>The 'timeIn' field is explicitly excluded from the query criteria.</li>
      *     <li>The 'timeOut' field is matched against a predefined value, typically {@code INFINITY}.</li>
      * </ul>
      *
-     * <p><b>Usage:</b></p>
-     * <pre>
-     * Optional<MyEntity> result = entityService.findByIdExcludingTimeIn(entityId);
-     * result.ifPresent(entity -> {
-     *     // Process the retrieved entity
-     * });
-     * </pre>
-     *
-     * @param entityId The composite ID of the entity, excluding the 'timeIn' field.
-     *                 It is assumed that the ID is a composite object containing multiple fields.
+     * @param entityId  The composite ID of the entity, excluding the 'timeIn' field.
+     *                  It is assumed that the ID is a composite object containing multiple fields.
      * @return An {@code Optional} containing the found entity if it exists, or an empty {@code Optional} if no entity matches the criteria.
      */
     public Optional<T> findByIdExcludingTimeIn(ID entityId) {

@@ -21,12 +21,19 @@ import java.util.Optional;
  * class {@link JpaRepositoryFactoryBean} (usually {@link SimpleJpaRepository})
  *
  * @param <T> the type of the repository
+ * @param <S>  The type of the entity the repository manages.
+ * @param <ID> The type of the identifier of the entity the repository manages.
  */
 public class DefaultRepositoryFactoryBean<T extends Repository<S, ID>, S, ID>
         extends JpaRepositoryFactoryBean<T, S, ID> {
 
     private final boolean isTemporalRepository;
 
+    /**
+     * Constructs a new {@code DefaultRepositoryFactoryBean}.
+     *
+     * @param repositoryInterface The repository interface class to be implemented.
+     */
     public DefaultRepositoryFactoryBean(final Class<? extends T> repositoryInterface) {
         super(repositoryInterface);
         this.isTemporalRepository = TemporalRepository.class.isAssignableFrom(repositoryInterface);

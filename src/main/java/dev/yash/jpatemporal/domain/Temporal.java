@@ -9,28 +9,30 @@ import lombok.Setter;
 /**
  * Abstract base class for temporal entities.
  * <p>
- * This class is designed to be extended by entities that represent objects with
- * temporal boundaries, defined by a start time (`timeIn`) and an end time (`timeOut`).
- * It provides fields and constants to manage these temporal attributes.
+ * This class is intended to be extended by entities representing objects with
+ * temporal boundaries, defined by a start time ({@code timeIn}) and an end time ({@code timeOut}).
+ * It provides fields and constants to manage these temporal attributes effectively.
  * </p>
  *
- * <p>
- * The constant {@code INFINITY} is provided to represent an infinite or undefined end time.
- * Subclasses extending this abstract class should avoid redefining or using the reserved
- * fields {@code timeIn} and {@code timeOut}.
- * </p>
+ * <h2>Key Features:</h2>
+ * <ul>
+ *     <li>The constant {@code INFINITY} is provided to represent an infinite or undefined end time.</li>
+ *     <li>Subclasses extending this abstract class must not redefine or use the reserved fields {@code timeIn} and {@code timeOut}.</li>
+ * </ul>
  *
- * <p><b>Usage:</b></p>
+ * <h2>Usage Example:</h2>
  * <pre>
- * &#64;Entity
+ * {@code
+ * @Entity
  * public class ExampleTemporalEntity extends Temporal {
  *     // Define additional fields and methods here.
+ * }
  * }
  * </pre>
  *
  * <p>
- * This class uses the Lombok library annotations {@code @Getter} and {@code @Setter}
- * for generating boilerplate getter and setter methods automatically.
+ * This class uses the Lombok library annotations {@code @Getter} and {@code @Setter} to
+ * automatically generate getter and setter methods for its fields.
  * </p>
  *
  * @author Yashwanth M

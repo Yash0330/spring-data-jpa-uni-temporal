@@ -9,19 +9,21 @@ import lombok.Setter;
  * Abstract base class for temporal entity identifiers.
  * <p>
  * This class is intended to be extended by ID classes of entities that represent objects
- * with temporal boundaries, specifically defined by a start time (`timeIn`).
+ * with temporal boundaries, specifically defined by a start time ({@code timeIn}).
  * </p>
  *
- * <p>
- * Subclasses inheriting from this class should avoid redefining or modifying the reserved
- * {@code timeIn} field.
- * </p>
+ * <h2>Key Features:</h2>
+ * <ul>
+ *     <li>Subclasses inheriting from this class must not redefine or modify the reserved {@code timeIn} field.</li>
+ *     <li>Designed to be used in combination with temporal entities.</li>
+ * </ul>
  *
- * <h3>Usage Example:</h3>
+ * <h2>Usage Example:</h2>
  * <pre>
- * &#64;EntityId
+ * {@code
  * public class ExampleTemporalEntityId extends TemporalId {
  *     // Add additional ID fields and methods here.
+ * }
  * }
  * </pre>
  *
