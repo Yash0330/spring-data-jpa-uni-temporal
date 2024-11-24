@@ -57,10 +57,11 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * in milliseconds and inserts new entities into the database as active entities with their
      * {@code timeOut} field set to {@code Temporal.INFINITY}.
      * The operation is executed in batches to optimize performance for large datasets.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities the list of entities to save in batch
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
     void saveInBatch(@Nonnull List<T> entities);
 
@@ -104,11 +105,13 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * </p>
      * <p>
      * The operation is executed in batches of the specified size to optimize performance for large datasets.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities  the list of entities to save in batch
      * @param batchSize the size of each batch for processing
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if batchSize is less than 1
+     * @throws IllegalArgumentException if {@code batchSize} is less than 1
      */
     void saveInBatch(@Nonnull List<T> entities, int batchSize);
 
@@ -120,11 +123,13 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * </p>
      * <p>
      * The operation is executed in batches of the default batch size {@code DEFAULT_BATCH_SIZE} to optimize performance.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
-     * @param entities      the list of entities to save in batch
-     * @param entityManager the {@link EntityManager} to use for the operation
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if the {@code EntityManager} is {@code null}
+     * @param entities the list of entities to save in batch
+     * @param entityManager       the {@link EntityManager} to use for the operation
+     * @throws IllegalArgumentException if the {@code EntityManager} is {@code null}
      */
     void saveInBatch(@Nonnull List<T> entities, EntityManager entityManager);
 
@@ -134,10 +139,11 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * This method updates the {@code timeOut} field of existing entities to the current time
      * in milliseconds to mark them as inactive (soft delete).
      * The operation is executed in batches to optimize performance for large datasets.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities the list of entities to softly delete in batch
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
     void deleteInBatch(@Nonnull List<T> entities);
 
@@ -147,11 +153,13 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * This method updates the {@code timeOut} field of existing entities to the current time
      * in milliseconds to mark them as inactive (soft delete). The operation is executed in
      * batches of the given size to optimize performance for large datasets.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities  the list of entities to softly delete in batch
      * @param batchSize the number of entities to process in each batch
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
+     * @throws IllegalArgumentException if {@code batchSize} is less than 1
      */
     void deleteInBatch(@Nonnull List<T> entities, int batchSize);
 
@@ -161,11 +169,13 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * This method updates the {@code timeOut} field of existing entities to the current time
      * in milliseconds to mark them as inactive (soft delete). The operation is executed in
      * batches of the default size to optimize performance for large datasets.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
-     * @param entities      the list of entities to softly delete in batch
+     * @param entities the list of entities to softly delete in batch
      * @param entityManager the {@link EntityManager} used to perform the operation
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
+     * @throws IllegalArgumentException if the {@code EntityManager} is {@code null}
      */
     void deleteInBatch(@Nonnull List<T> entities, EntityManager entityManager);
 }

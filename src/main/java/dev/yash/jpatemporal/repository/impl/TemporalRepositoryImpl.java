@@ -398,12 +398,11 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * in milliseconds and inserts new entities into the database as active entities with their
      * {@code timeOut} field set to {@code Temporal.INFINITY}.
      * The operation is executed in batches to optimize performance for large datasets.
-     *  The method ensures efficient batch processing while avoiding
-     *  duplicate entities by retaining only the last occurrence of each entity in the input list.
+     * The method ensures efficient batch processing while avoiding
+     * duplicate entities by retaining only the last occurrence of each entity in the input list.
      * </p>
      *
      * @param entities the list of entities to save in batch
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
     @Transactional
     @Override
@@ -464,7 +463,7 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      *
      * @param entities  the list of entities to save in batch
      * @param batchSize the size of each batch for processing
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if batchSize is less than 1
+     * @throws IllegalArgumentException if {@code batchSize} is less than 1
      */
     @Transactional
     @Override
@@ -528,7 +527,7 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      *
      * @param entities the list of entities to save in batch
      * @param em       the {@link EntityManager} to use for the operation
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if the {@code EntityManager} is {@code null}
+     * @throws IllegalArgumentException if the {@code EntityManager} is {@code null}
      */
     @Transactional
     @Override
@@ -589,7 +588,6 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * </p>
      *
      * @param entities the list of entities to softly delete in batch
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
     @Transactional
     @Override
@@ -638,13 +636,16 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      *
      * @param entities  the list of entities to softly delete in batch
      * @param batchSize the number of entities to process in each batch
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
+     * @throws IllegalArgumentException if {@code batchSize} is less than 1
      */
     @Override
     @Transactional
     public void deleteInBatch(@Nonnull List<T> entities, int batchSize) {
         if (entities.isEmpty()) {
             return;
+        }
+        if (batchSize < 1) {
+            throw new IllegalArgumentException("Batch size must be greater than 0.");
         }
 
         long currentTimeMillis = System.currentTimeMillis();
@@ -686,14 +687,17 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      * </p>
      *
      * @param entities the list of entities to softly delete in batch
-     * @param em       the {@link EntityManager} used to perform the operation
-     * @throws IllegalArgumentException if the list of entities is {@code null} or empty
+     * @param em the {@link EntityManager} used to perform the operation
+     * @throws IllegalArgumentException if the {@code EntityManager} is {@code null}
      */
     @Override
     @Transactional
     public void deleteInBatch(@Nonnull List<T> entities, EntityManager em) {
         if (entities.isEmpty()) {
             return;
+        }
+        if (em == null) {
+            throw new IllegalArgumentException("EntityManager must not be null.");
         }
 
         List<T> nonDuplicates = filterDuplicatesKeepLast(entities);
