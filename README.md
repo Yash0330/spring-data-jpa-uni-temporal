@@ -96,7 +96,7 @@ This library provides optimized batch operations for JPA entities, allowing you 
 ### Optimized for Batch Processing
 
 These methods are designed for performance and scalability, allowing you to process large datasets efficiently. For example:
-- If you have a list of 1000 entities, you can use `saveInBatch` or `deleteInBatch` to handle them in chunks instead of processing all entities at once.
+- If you have a list of 1000 entities, you can use `saveInBatch` or `deleteInBatch` to handle them in chunks instead of processing one by one.
 
 ### Batch Size Configuration
 
