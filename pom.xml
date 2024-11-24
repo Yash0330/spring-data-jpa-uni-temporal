@@ -35,7 +35,7 @@
     </scm>
     <properties>
         <java.version>21</java.version>
-        <gpg.keyname>Yashwanth M</gpg.keyname>
+        <gpg.keyId>2567B375</gpg.keyId>
     </properties>
     <dependencies>
         <dependency>
