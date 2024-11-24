@@ -234,18 +234,18 @@ class TemporalRepositoryTest {
     }
 
     @Test
-    void delete_WithNullEntityId_ShouldThrowException() {
+    void delete_WithNullEntityId_ShouldNotThrowException() {
         // When/Then
-        assertThrows(InvalidDataAccessApiUsageException.class, () -> repository.delete(new Transaction()));
+        assertDoesNotThrow(() -> repository.delete(new Transaction()));
     }
 
     @Test
-    void delete_WithNonExistentEntity_ShouldThrowException() {
+    void delete_WithNonExistentEntity_ShouldNotThrowException() {
         // Given
         Transaction nonExistentTransaction = createTransaction("NONEXISTENT", "ACC999", "DEPOSIT", 1000.0, Temporal.INFINITY, timeIn);
 
         // When/Then
-        assertThrows(InvalidDataAccessApiUsageException.class, () -> repository.delete(nonExistentTransaction));
+        assertDoesNotThrow(() -> repository.delete(nonExistentTransaction));
     }
 
     @Test
@@ -329,7 +329,7 @@ class TemporalRepositoryTest {
         );
 
         // When/Then
-        assertThrows(InvalidDataAccessApiUsageException.class, () -> repository.deleteAll(transactions));
+        assertDoesNotThrow(() -> repository.deleteAll(transactions));
     }
 
     @Test
@@ -454,7 +454,6 @@ class TemporalRepositoryTest {
 
         // When
         repository.deleteById(new TransactionId(timeIn, activeId));
-        entityManager.flush();
 
         // Then
         Optional<Transaction> result = repository.findById(new TransactionId(timeIn, activeId));
@@ -527,6 +526,8 @@ class TemporalRepositoryTest {
 
         // Update the existing transaction details
         existingTransaction.setAmount(2000.0);
+        // Timein can be null it should check for unique key
+        existingTransaction.setTimeIn(null);
 
         // Act
         Transaction newSavedTransaction = repository.save(existingTransaction);

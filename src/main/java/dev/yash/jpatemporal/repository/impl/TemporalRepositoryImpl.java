@@ -4,14 +4,20 @@ import dev.yash.jpatemporal.domain.Temporal;
 import dev.yash.jpatemporal.repository.TemporalRepository;
 import jakarta.annotation.Nonnull;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.NoResultException;
+import jakarta.persistence.Query;
+import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.*;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.jpa.repository.support.JpaEntityInformation;
 import org.springframework.data.jpa.repository.support.SimpleJpaRepository;
 import org.springframework.data.repository.NoRepositoryBean;
 
-import java.util.List;
-import java.util.Optional;
+import java.lang.reflect.Field;
+import java.util.*;
+
+import static dev.yash.jpatemporal.domain.Temporal.*;
 
 /**
  * Custom repository implementation for handling temporal entities.
@@ -47,6 +53,35 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
         this.entityManager = entityManager;
     }
 
+    /**
+     * Filters duplicates from the input list while preserving the last occurrence of each element.
+     * The order of elements in the result list corresponds to the order of their last occurrence
+     * in the input list. This method creates a new list and does not modify the input list.
+     *
+     * <p>Performance characteristics:</p>
+     * <ul>
+     *   <li>Time complexity: O(n) where n is the size of the input list</li>
+     *   <li>Space complexity: O(n) for storing the set</li>
+     * </ul>
+     *
+     * @param <T>      the type of elements in the list
+     * @param entities the list to filter duplicates from; must not be null
+     * @return a new list containing unique elements in order of their last occurrence
+     * @throws NullPointerException if the input list is null
+     */
+    private static <T> List<T> filterDuplicatesKeepLast(final List<T> entities) {
+        Set<T> seen = new HashSet<>();
+        List<T> result = new ArrayList<>(entities.size());
+
+        // Single pass in reverse order - O(n)
+        for (int i = entities.size() - 1; i >= 0; i--) {
+            if (seen.add(entities.get(i))) {
+                result.addFirst(entities.get(i));
+            }
+        }
+
+        return result;
+    }
 
     /**
      * Retrieves all entities of the specified type where {@code timeOut} is equal to {@link Temporal#INFINITY}.
@@ -57,8 +92,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
     @Nonnull
     public List<T> findAll() {
         return entityManager.createQuery(
-                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
-                .setParameter("timeOut", Temporal.INFINITY)
+                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e." + TIME_OUT_FIELD + " = :timeOut", domainClass)
+                .setParameter(TIME_OUT_FIELD, Temporal.INFINITY)
                 .getResultList();
     }
 
@@ -72,9 +107,9 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
     @Nonnull
     public List<T> findAllById(@Nonnull Iterable<ID> ids) {
         return entityManager.createQuery(
-                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e.id IN :ids AND e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
+                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e.id IN :ids AND e." + TIME_OUT_FIELD + " = :timeOut", domainClass)
                 .setParameter("ids", ids)
-                .setParameter("timeOut", Temporal.INFINITY)
+                .setParameter(TIME_OUT_FIELD, Temporal.INFINITY)
                 .getResultList();
     }
 
@@ -90,8 +125,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
     @Override
     public long count() {
         return entityManager.createQuery(
-                        "SELECT COUNT(e) FROM " + domainClass.getSimpleName() + " e WHERE e." + Temporal.TIME_OUT_FIELD + " = :timeOut", Long.class)
-                .setParameter("timeOut", Temporal.INFINITY)
+                        "SELECT COUNT(e) FROM " + domainClass.getSimpleName() + " e WHERE e." + TIME_OUT_FIELD + " = :timeOut", Long.class)
+                .setParameter(TIME_OUT_FIELD, Temporal.INFINITY)
                 .getSingleResult();
     }
 
@@ -109,9 +144,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
         if (entity != null) {
             entity.setTimeOut(currentTimeMillis);
             entityManager.merge(entity);
+            entityManager.flush();
         }
-
-        entityManager.flush();
     }
 
     /**
@@ -129,28 +163,29 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
     public void delete(@Nonnull T entity) {
 
         // Fetch the ID of the entity
-        ID entityId = (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
+        ID entityId = getEntityId(entity, entityManager);
 
         if (entityId == null) {
             throw new IllegalArgumentException("Entity must have a valid ID");
         }
 
         // Fetch the existing entity from the database
-        T existingEntity = entityManager.find(domainClass, entityId);
-        if (existingEntity == null) {
-            throw new IllegalArgumentException("Entity does not exist in the database");
+        Optional<T> existingEntityOpt = findByIdExcludingTimeIn(entityId);
+        if (existingEntityOpt.isPresent()) {
+
+
+            T existingEntity = existingEntityOpt.get();
+
+            // Set the `timeOut` field to the current time in milliseconds
+            long currentTimeMillis = System.currentTimeMillis();
+            existingEntity.setTimeOut(currentTimeMillis);
+
+            // Update the entity in the database
+            entityManager.merge(existingEntity);
+
+            entityManager.flush();
         }
-
-        // Set the `timeOut` field to the current time in milliseconds
-        long currentTimeMillis = System.currentTimeMillis();
-        existingEntity.setTimeOut(currentTimeMillis);
-
-        // Update the entity in the database
-        entityManager.merge(existingEntity);
-
-        entityManager.flush();
     }
-
 
     /**
      * Performs a soft delete on all entities with the given IDs by setting their {@code timeOut} fields
@@ -172,7 +207,6 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
         }
     }
 
-
     /**
      * Performs a soft delete on all provided entities by setting their {@code timeOut} fields
      * to the current time in milliseconds.
@@ -193,7 +227,6 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
         }
     }
 
-
     /**
      * Performs a soft delete on all entities in the database by setting their {@code timeOut} fields
      * to the current time in milliseconds.
@@ -204,17 +237,16 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
         long currentTimeMillis = System.currentTimeMillis();
 
         entityManager.createQuery(
-                        "UPDATE " + domainClass.getSimpleName() + " e SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity")
-                .setParameter("timeOut", currentTimeMillis)
+                        "UPDATE " + domainClass.getSimpleName() + " e SET e." + TIME_OUT_FIELD + " = :timeOut WHERE e." + TIME_OUT_FIELD + " = :infinity")
+                .setParameter(TIME_OUT_FIELD, currentTimeMillis)
                 .setParameter("infinity", Temporal.INFINITY)
                 .executeUpdate();
 
         entityManager.flush();
     }
 
-
     /**
-     * Retrieves an entity by its primary key only if its {@code timeOut} equals {@link Temporal#INFINITY}.
+     * Retrieves an entity by its primary key excluding timeIn only if its {@code timeOut} equals {@link Temporal#INFINITY}.
      *
      * @param id the primary key of the entity to retrieve
      * @return an {@code Optional} containing the entity if found and its {@code timeOut} is {@link Temporal#INFINITY}, otherwise empty
@@ -222,14 +254,7 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
     @Override
     @Nonnull
     public Optional<T> findById(@Nonnull ID id) {
-        T entity = entityManager.createQuery(
-                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e.id = :id AND e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
-                .setParameter("id", id)
-                .setParameter("timeOut", Temporal.INFINITY)
-                .getResultStream()
-                .findFirst()
-                .orElse(null);
-        return Optional.ofNullable(entity);
+        return findByIdExcludingTimeIn(id);
     }
 
     /**
@@ -245,13 +270,27 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
     @Override
     public boolean existsById(@Nonnull ID id) {
         Long count = entityManager.createQuery(
-                        "SELECT COUNT(e) FROM " + domainClass.getSimpleName() + " e WHERE e.id = :id AND e." + Temporal.TIME_OUT_FIELD + " = :timeOut", Long.class)
+                        "SELECT COUNT(e) FROM " + domainClass.getSimpleName() + " e WHERE e.id = :id AND e." + TIME_OUT_FIELD + " = :timeOut", Long.class)
                 .setParameter("id", id)
-                .setParameter("timeOut", Temporal.INFINITY)
+                .setParameter(TIME_OUT_FIELD, Temporal.INFINITY)
                 .getSingleResult();
         return count > 0;
     }
 
+    /**
+     * Checks if an entity with the given ID excluding timeIn exists and is active (i.e., its {@code timeOut} is equal to {@link Temporal#INFINITY}).
+     * <p>
+     * This method checks if an entity with the provided ID excluding timeIn exists in the database and its {@code timeOut} field
+     * is set to {@link Temporal#INFINITY}. This indicates that the entity is considered active.
+     * </p>
+     *
+     * @param id the ID of the entity excluding timeIn to check for existence
+     * @return {@code true} if the entity exists and its {@code timeOut} is equal to {@link Temporal#INFINITY}, otherwise {@code false}
+     */
+    @Override
+    public boolean existsByIdExcludingTimeIn(@Nonnull ID id) {
+        return findByIdExcludingTimeIn(id).isPresent();
+    }
 
     /**
      * Saves a single entity to the database.
@@ -272,10 +311,10 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
         long currentTimeMillis = System.currentTimeMillis();
 
         // Get the ID of the entity
-        ID entityId = (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
+        ID entityId = getEntityId(entity, entityManager);
 
         // Check if the entity exists
-        Optional<T> existingEntityOpt = findById(entityId);
+        Optional<T> existingEntityOpt = findByIdExcludingTimeIn(entityId);
 
         if (existingEntityOpt.isPresent()) {
             // Update the `timeOut` field of the existing entity
@@ -328,8 +367,8 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
     @Nonnull
     public List<T> findAllByBatchSize(int batchSize) {
         return entityManager.createQuery(
-                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
-                .setParameter("timeOut", Temporal.INFINITY)
+                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE e." + TIME_OUT_FIELD + " = :timeOut", domainClass)
+                .setParameter(TIME_OUT_FIELD, Temporal.INFINITY)
                 .setHint("org.hibernate.fetchSize", batchSize)  // Set the fetch size hint to the batch size
                 .getResultList();
     }
@@ -342,10 +381,10 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      */
     @Override
     @Nonnull
-    public Optional<T> find(String predicate) {
+    public Optional<T> find(@Nonnull String predicate) {
         T entity = entityManager.createQuery(
-                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE " + predicate + " AND e." + Temporal.TIME_OUT_FIELD + " = :timeOut", domainClass)
-                .setParameter("timeOut", Temporal.INFINITY)
+                        "SELECT e FROM " + domainClass.getSimpleName() + " e WHERE " + predicate + " AND e." + TIME_OUT_FIELD + " = :timeOut", domainClass)
+                .setParameter(TIME_OUT_FIELD, Temporal.INFINITY)
                 .getResultStream()
                 .findFirst()
                 .orElse(null);
@@ -366,33 +405,30 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      */
     @Transactional
     @Override
-    public void saveInBatch(List<T> entities) {
-        if (entities == null || entities.isEmpty()) {
-            throw new IllegalArgumentException("Entities list must not be null or empty.");
+    public void saveInBatch(@Nonnull List<T> entities) {
+        if (entities.isEmpty()) {
+            return;
         }
+
+        List<T> nonDuplicates = filterDuplicatesKeepLast(entities);
 
         long currentTimeMillis = System.currentTimeMillis();
 
         // Detach all entities to prevent unintended persistence context interference
-        entities.forEach(entityManager::detach);
+        nonDuplicates.forEach(entityManager::detach);
 
         // Process entities in batches
-        for (int i = 0; i < entities.size(); i += DEFAULT_BATCH_SIZE) {
+        for (int i = 0; i < nonDuplicates.size(); i += DEFAULT_BATCH_SIZE) {
             // Create a batch slice
-            List<T> batch = entities.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, entities.size()));
+            List<T> batch = nonDuplicates.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, nonDuplicates.size()));
+
+            // Convert the batch of entities to their corresponding IDs
+            List<ID> entityIds = batch.stream()
+                    .map(entity -> getEntityId(entity, entityManager))  // Assuming getId() retrieves the entity's ID
+                    .toList();
 
             // Update the timeOut field for existing entities in the batch
-            entityManager.createQuery(
-                            "UPDATE " + domainClass.getSimpleName() + " e " +
-                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
-                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
-                                    "AND e.id IN :ids")
-                    .setParameter("ids", batch.stream()
-                            .map(entity -> (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
-                            .toList())
-                    .setParameter("timeOut", currentTimeMillis)
-                    .setParameter("infinity", Temporal.INFINITY)
-                    .executeUpdate();
+            updateTimeOutExcludingTimeIn(entityIds, currentTimeMillis);
 
             // Flush changes to the database
             entityManager.flush();
@@ -428,36 +464,33 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      */
     @Transactional
     @Override
-    public void saveInBatch(List<T> entities, int batchSize) {
-        if (entities == null || entities.isEmpty()) {
-            throw new IllegalArgumentException("Entities list must not be null or empty.");
+    public void saveInBatch(@Nonnull List<T> entities, int batchSize) {
+        if (entities.isEmpty()) {
+            return;
         }
         if (batchSize < 1) {
             throw new IllegalArgumentException("Batch size must be greater than 0.");
         }
 
+        List<T> nonDuplicates = filterDuplicatesKeepLast(entities);
+
         long currentTimeMillis = System.currentTimeMillis();
 
         // Detach all entities to prevent unintended persistence context interference
-        entities.forEach(entityManager::detach);
+        nonDuplicates.forEach(entityManager::detach);
 
         // Process entities in batches
-        for (int i = 0; i < entities.size(); i += batchSize) {
+        for (int i = 0; i < nonDuplicates.size(); i += batchSize) {
             // Create a batch slice
-            List<T> batch = entities.subList(i, Math.min(i + batchSize, entities.size()));
+            List<T> batch = nonDuplicates.subList(i, Math.min(i + batchSize, nonDuplicates.size()));
+
+            // Convert the batch of entities to their corresponding IDs
+            List<ID> entityIds = batch.stream()
+                    .map(entity -> getEntityId(entity, entityManager))  // Assuming getId() retrieves the entity's ID
+                    .toList();
 
             // Update the timeOut field for existing entities in the batch
-            entityManager.createQuery(
-                            "UPDATE " + domainClass.getSimpleName() + " e " +
-                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
-                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
-                                    "AND e.id IN :ids")
-                    .setParameter("ids", batch.stream()
-                            .map(entity -> (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
-                            .toList())
-                    .setParameter("timeOut", currentTimeMillis)
-                    .setParameter("infinity", Temporal.INFINITY)
-                    .executeUpdate();
+            updateTimeOutExcludingTimeIn(entityIds, currentTimeMillis);
 
             // Flush changes to the database
             entityManager.flush();
@@ -477,7 +510,6 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
         }
     }
 
-
     /**
      * Performs a batch save operation using the specified {@link EntityManager}.
      * <p>
@@ -494,13 +526,15 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      */
     @Transactional
     @Override
-    public void saveInBatch(List<T> entities, EntityManager em) {
-        if (entities == null || entities.isEmpty()) {
-            throw new IllegalArgumentException("Entities list must not be null or empty.");
+    public void saveInBatch(@Nonnull List<T> entities, EntityManager em) {
+        if (entities.isEmpty()) {
+            return;
         }
         if (em == null) {
             throw new IllegalArgumentException("EntityManager must not be null.");
         }
+
+        List<T> nonDuplicates = filterDuplicatesKeepLast(entities);
 
         long currentTimeMillis = System.currentTimeMillis();
 
@@ -512,18 +546,13 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
             // Create a batch slice
             List<T> batch = entities.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, entities.size()));
 
+            // Convert the batch of entities to their corresponding IDs
+            List<ID> entityIds = batch.stream()
+                    .map(entity -> getEntityId(entity, entityManager))  // Assuming getId() retrieves the entity's ID
+                    .toList();
+
             // Update the timeOut field for existing entities in the batch
-            em.createQuery(
-                            "UPDATE " + domainClass.getSimpleName() + " e " +
-                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
-                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
-                                    "AND e.id IN :ids")
-                    .setParameter("ids", batch.stream()
-                            .map(entity -> (ID) em.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
-                            .toList())
-                    .setParameter("timeOut", currentTimeMillis)
-                    .setParameter("infinity", Temporal.INFINITY)
-                    .executeUpdate();
+            updateTimeOutExcludingTimeIn(entityIds, currentTimeMillis);
 
             // Flush changes to the database
             entityManager.flush();
@@ -543,7 +572,6 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
         }
     }
 
-
     /**
      * Performs a soft delete operation on the provided list of entities in batches.
      * <p>
@@ -557,33 +585,30 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      */
     @Transactional
     @Override
-    public void deleteInBatch(List<T> entities) {
-        if (entities == null || entities.isEmpty()) {
-            throw new IllegalArgumentException("Entities list must not be null or empty.");
+    public void deleteInBatch(@Nonnull List<T> entities) {
+        if (entities.isEmpty()) {
+            return;
         }
 
         long currentTimeMillis = System.currentTimeMillis();
 
+        List<T> nonDuplicates = filterDuplicatesKeepLast(entities);
+
         // Detach all entities to prevent unintended persistence context interference
-        entities.forEach(entityManager::detach);
+        nonDuplicates.forEach(entityManager::detach);
 
         // Process entities in batches
-        for (int i = 0; i < entities.size(); i += DEFAULT_BATCH_SIZE) {
+        for (int i = 0; i < nonDuplicates.size(); i += DEFAULT_BATCH_SIZE) {
             // Create a batch slice
-            List<T> batch = entities.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, entities.size()));
+            List<T> batch = nonDuplicates.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, nonDuplicates.size()));
+
+            // Convert the batch of entities to their corresponding IDs
+            List<ID> entityIds = batch.stream()
+                    .map(entity -> getEntityId(entity, entityManager))  // Assuming getId() retrieves the entity's ID
+                    .toList();
 
             // Update the timeOut field for existing entities in the batch
-            entityManager.createQuery(
-                            "UPDATE " + domainClass.getSimpleName() + " e " +
-                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
-                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
-                                    "AND e.id IN :ids")
-                    .setParameter("ids", batch.stream()
-                            .map(entity -> (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
-                            .toList())
-                    .setParameter("timeOut", currentTimeMillis)
-                    .setParameter("infinity", Temporal.INFINITY)
-                    .executeUpdate();
+            updateTimeOutExcludingTimeIn(entityIds, currentTimeMillis);
 
             // Flush changes to the database
             entityManager.flush();
@@ -607,33 +632,30 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      */
     @Override
     @Transactional
-    public void deleteInBatch(List<T> entities, int batchSize) {
-        if (entities == null || entities.isEmpty()) {
-            throw new IllegalArgumentException("Entities list must not be null or empty.");
+    public void deleteInBatch(@Nonnull List<T> entities, int batchSize) {
+        if (entities.isEmpty()) {
+            return;
         }
 
         long currentTimeMillis = System.currentTimeMillis();
 
+        List<T> nonDuplicates = filterDuplicatesKeepLast(entities);
+
         // Detach all entities to prevent unintended persistence context interference
-        entities.forEach(entityManager::detach);
+        nonDuplicates.forEach(entityManager::detach);
 
         // Process entities in batches
-        for (int i = 0; i < entities.size(); i += batchSize) {
+        for (int i = 0; i < nonDuplicates.size(); i += batchSize) {
             // Create a batch slice
-            List<T> batch = entities.subList(i, Math.min(i + batchSize, entities.size()));
+            List<T> batch = nonDuplicates.subList(i, Math.min(i + batchSize, nonDuplicates.size()));
+
+            // Convert the batch of entities to their corresponding IDs
+            List<ID> entityIds = batch.stream()
+                    .map(entity -> getEntityId(entity, entityManager))  // Assuming getId() retrieves the entity's ID
+                    .toList();
 
             // Update the timeOut field for existing entities in the batch
-            entityManager.createQuery(
-                            "UPDATE " + domainClass.getSimpleName() + " e " +
-                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
-                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
-                                    "AND e.id IN :ids")
-                    .setParameter("ids", batch.stream()
-                            .map(entity -> (ID) entityManager.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
-                            .toList())
-                    .setParameter("timeOut", currentTimeMillis)
-                    .setParameter("infinity", Temporal.INFINITY)
-                    .executeUpdate();
+            updateTimeOutExcludingTimeIn(entityIds, currentTimeMillis);
 
             // Flush changes to the database
             entityManager.flush();
@@ -642,7 +664,6 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
             batch.forEach(entityManager::detach);
         }
     }
-
 
     /**
      * Performs a soft delete operation on the provided list of entities using the given {@link EntityManager}.
@@ -658,33 +679,30 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
      */
     @Override
     @Transactional
-    public void deleteInBatch(List<T> entities, EntityManager em) {
-        if (entities == null || entities.isEmpty()) {
-            throw new IllegalArgumentException("Entities list must not be null or empty.");
+    public void deleteInBatch(@Nonnull List<T> entities, EntityManager em) {
+        if (entities.isEmpty()) {
+            return;
         }
+
+        List<T> nonDuplicates = filterDuplicatesKeepLast(entities);
 
         long currentTimeMillis = System.currentTimeMillis();
 
         // Detach all entities to prevent unintended persistence context interference
-        entities.forEach(em::detach);
+        nonDuplicates.forEach(em::detach);
 
         // Process entities in batches
-        for (int i = 0; i < entities.size(); i += DEFAULT_BATCH_SIZE) {
+        for (int i = 0; i < nonDuplicates.size(); i += DEFAULT_BATCH_SIZE) {
             // Create a batch slice
-            List<T> batch = entities.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, entities.size()));
+            List<T> batch = nonDuplicates.subList(i, Math.min(i + DEFAULT_BATCH_SIZE, nonDuplicates.size()));
+
+            // Convert the batch of entities to their corresponding IDs
+            List<ID> entityIds = batch.stream()
+                    .map(entity -> getEntityId(entity, entityManager))  // Assuming getId() retrieves the entity's ID
+                    .toList();
 
             // Update the timeOut field for existing entities in the batch
-            em.createQuery(
-                            "UPDATE " + domainClass.getSimpleName() + " e " +
-                                    "SET e." + Temporal.TIME_OUT_FIELD + " = :timeOut " +
-                                    "WHERE e." + Temporal.TIME_OUT_FIELD + " = :infinity " +
-                                    "AND e.id IN :ids")
-                    .setParameter("ids", batch.stream()
-                            .map(entity -> (ID) em.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity))
-                            .toList())
-                    .setParameter("timeOut", currentTimeMillis)
-                    .setParameter("infinity", Temporal.INFINITY)
-                    .executeUpdate();
+            updateTimeOutExcludingTimeIn(entityIds, currentTimeMillis);
 
             // Flush changes to the database
             entityManager.flush();
@@ -692,6 +710,197 @@ public class TemporalRepositoryImpl<T extends Temporal, ID> extends SimpleJpaRep
             // Detach entities to clear them from the persistence context
             batch.forEach(em::detach);
         }
+    }
+
+    /**
+     * Finds an entity by its ID, excluding the 'timeIn' field from the composite ID and ensuring
+     * the 'timeOut' field matches a specific value (e.g., {@code INFINITY}).
+     * <p>
+     * This method dynamically builds a query to fetch the entity based on the provided ID fields
+     * other than 'timeIn', and adds a condition to filter entities where the 'timeOut' field
+     * equals a predefined value.
+     * </p>
+     *
+     * <p><b>Behavior:</b></p>
+     * <ul>
+     *     <li>The 'timeIn' field is explicitly excluded from the query criteria.</li>
+     *     <li>The 'timeOut' field is matched against a predefined value, typically {@code INFINITY}.</li>
+     * </ul>
+     *
+     * <p><b>Usage:</b></p>
+     * <pre>
+     * Optional<MyEntity> result = entityService.findByIdExcludingTimeIn(entityId);
+     * result.ifPresent(entity -> {
+     *     // Process the retrieved entity
+     * });
+     * </pre>
+     *
+     * @param entityId The composite ID of the entity, excluding the 'timeIn' field.
+     *                 It is assumed that the ID is a composite object containing multiple fields.
+     * @return An {@code Optional} containing the found entity if it exists, or an empty {@code Optional} if no entity matches the criteria.
+     */
+    public Optional<T> findByIdExcludingTimeIn(ID entityId) {
+        // Obtain the EntityManager and CriteriaBuilder
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<T> cq = cb.createQuery(domainClass);
+        Root<T> root = cq.from(domainClass);
+
+        // Get the composite ID path
+        Path<ID> idPath = root.get("id");
+
+        // Dynamically create predicates (conditions) excluding timeIn
+        Predicate[] predicates = buildPredicatesExcludingTimeIn(cb, idPath, entityId);
+
+        if (predicates.length == 0) {
+            return Optional.empty();
+        }
+
+        // Create a predicate to check that timeOut equals INFINITY
+        Predicate timeOutPredicate = cb.equal(root.get(TIME_OUT_FIELD), INFINITY);
+
+        // Combine all predicates (ID predicates + timeOut predicate)
+        Predicate finalPredicate = cb.and(cb.and(predicates), timeOutPredicate);
+
+        // Apply the predicates to the CriteriaQuery
+        cq.where(finalPredicate);
+
+        // Create the query and execute it
+        TypedQuery<T> query = entityManager.createQuery(cq);
+        try {
+            T entity = query.getSingleResult();
+            return Optional.of(entity);
+        } catch (NoResultException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Builds dynamic predicates for the query, excluding the 'timeIn' field from the ID.
+     * This method uses Java reflection to inspect the fields of the composite ID and
+     * dynamically constructs conditions for the query based on non-null fields.
+     *
+     * @param cb       The CriteriaBuilder used to create the query predicates.
+     * @param idPath   The path representing the composite ID in the entity.
+     * @param entityId The ID object containing the fields for the entity to be queried.
+     * @return An array of predicates to be used in the query.
+     */
+    private Predicate[] buildPredicatesExcludingTimeIn(CriteriaBuilder cb, Path<ID> idPath, ID entityId) {
+        // Use reflection to dynamically inspect fields of the ID class
+        Field[] fields = entityId.getClass().getDeclaredFields();
+
+        List<Predicate> predicates = new ArrayList<>(fields.length - 1);
+
+        // Iterate over the fields and create predicates for each field (excluding timeIn)
+        for (Field field : fields) {
+            // Skip the 'timeIn' field
+            if (TIME_IN_FIELD.equals(field.getName())) {
+                continue;
+            }
+
+            // Make sure the field is accessible
+            field.setAccessible(true);
+
+            try {
+                // Get the value of the field from the entityId instance
+                Object fieldValue = field.get(entityId);
+
+                // Add a predicate for non-null fields
+                if (fieldValue != null) {
+                    predicates.add(cb.equal(idPath.get(field.getName()), fieldValue));
+                }
+            } catch (IllegalAccessException e) {
+                // Handle reflection access exception if needed
+                throw new RuntimeException(e);
+            }
+        }
+
+        // Return the array of predicates
+        return predicates.toArray(new Predicate[0]);
+    }
+
+    /**
+     * Updates the 'timeOut' field for entities that match any of the specified IDs, excluding the 'timeIn' field.
+     * <p>
+     * This method dynamically constructs an update query to modify the 'timeOut' value for all entities
+     * whose composite ID fields (excluding 'timeIn') match any of the provided entity IDs.
+     * Additionally, the update ensures that the 'timeOut' field is modified based on the provided value.
+     * </p>
+     *
+     * <p><b>Behavior:</b></p>
+     * <ul>
+     *     <li>The 'timeIn' field is excluded from the matching criteria during the update.</li>
+     *     <li>Entities are updated where the 'timeOut' field currently has a predefined value, typically {@code INFINITY}.</li>
+     *     <li>The 'timeOut' field is set to the new value passed as a parameter.</li>
+     *     <li>The method applies the update for all entity IDs provided in the list.</li>
+     * </ul>
+     *
+     * <p><b>Usage:</b></p>
+     * <pre>
+     * int updatedCount = entityService.updateTimeOutExcludingTimeIn(entityIds, newTimeOut);
+     * System.out.println("Number of entities updated: " + updatedCount);
+     * </pre>
+     *
+     * @param entityIds A list of composite IDs for the entities (excluding the 'timeIn' field).
+     *                  It is assumed that the IDs are composite objects containing multiple fields.
+     * @param timeOut   The new value for the 'timeOut' field to be set in the matching entities.
+     */
+    private void updateTimeOutExcludingTimeIn(List<ID> entityIds, Long timeOut) {
+        // Obtain the CriteriaBuilder and CriteriaUpdate
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaUpdate<T> criteriaUpdate = cb.createCriteriaUpdate(domainClass);
+
+        // Define the root for the entity
+        Root<T> root = criteriaUpdate.from(domainClass);
+
+        // Create an empty list for predicates
+        List<Predicate> allPredicates = new ArrayList<>();
+
+        // Dynamically build the predicates for the ID excluding 'timeIn' for each entityId
+        for (ID entityId : entityIds) {
+            Predicate[] predicates = buildPredicatesExcludingTimeIn(cb, root.get("id"), entityId);
+
+            if (predicates.length > 0) {
+                // Add the individual entity ID predicates to the list of all predicates
+                allPredicates.add(cb.and(predicates));
+            }
+        }
+
+        if (allPredicates.isEmpty()) {
+            return; // No matching IDs
+        }
+
+        // Combine all predicates using OR for each ID
+        Predicate combinedPredicate = cb.or(allPredicates.toArray(new Predicate[0]));
+
+        // Create a predicate to check that timeOut equals INFINITY
+        Predicate timeOutPredicate = cb.equal(root.get(TIME_OUT_FIELD), INFINITY);
+
+        // Combine the ID predicates with the timeOut condition
+        Predicate finalPredicate = cb.and(combinedPredicate, timeOutPredicate);
+
+        // Set the 'timeOut' value to the new value
+        criteriaUpdate.set(TIME_OUT_FIELD, timeOut);
+
+        // Apply the predicates as the condition for the update query
+        criteriaUpdate.where(finalPredicate);
+
+        // Create the query and execute it
+        Query query = entityManager.createQuery(criteriaUpdate);
+        query.executeUpdate();
+    }
+
+    /**
+     * Retrieves the ID of an entity using the EntityManager.
+     *
+     * @param entity        The entity object.
+     * @param entityManager The EntityManager used to retrieve the ID.
+     * @return The ID of the entity.
+     */
+    private ID getEntityId(T entity, EntityManager entityManager) {
+        // Use EntityManager to retrieve the identifier of the entity
+        return (ID) entityManager.getEntityManagerFactory()
+                .getPersistenceUnitUtil()
+                .getIdentifier(entity);
     }
 }
 

@@ -46,11 +46,11 @@ public class ParallelBatchUpdater {
      * <p><strong>Note:</strong> The number of threads should be less than the maximum number of connections
      * allowed by the database to prevent connection exhaustion.</p>
      *
-     * @param <T>         the type of the entity, which must implement {@link Temporal}
-     * @param <ID>        the type of the entity's identifier
-     * @param entities    the list of entities to save; must not be {@code null} or empty
-     * @param threads     the number of threads to use for parallel processing; must be greater than 0
-     * @param repository  the repository to use for saving entities; must support batch operations
+     * @param <T>        the type of the entity, which must implement {@link Temporal}
+     * @param <ID>       the type of the entity's identifier
+     * @param entities   the list of entities to save; must not be {@code null} or empty
+     * @param threads    the number of threads to use for parallel processing; must be greater than 0
+     * @param repository the repository to use for saving entities; must support batch operations
      * @throws IllegalArgumentException if the {@code entities} list is {@code null} or empty,
      *                                  or if {@code threads} is less than or equal to 0
      * @throws RuntimeException         if an error occurs while saving entities or managing transactions
@@ -85,7 +85,7 @@ public class ParallelBatchUpdater {
                     repository.saveInBatch(sublist, entityManager); // Save the sublist using the repository
                     transaction.commit();
                 } catch (Exception e) {
-                    if(transaction != null){
+                    if (transaction != null) {
                         transaction.rollback();
                     }
                     throw new RuntimeException("Error while saving entities", e);
@@ -114,11 +114,11 @@ public class ParallelBatchUpdater {
      * <p><strong>Note:</strong> The number of threads should be less than the maximum number of connections
      * allowed by the database to prevent connection exhaustion.</p>
      *
-     * @param <T>         the type of the entity, which must implement {@link Temporal}
-     * @param <ID>        the type of the entity's identifier
-     * @param entities    the list of entities to delete; must not be {@code null} or empty
-     * @param threads     the number of threads to use for parallel processing; must be greater than 0
-     * @param repository  the repository to use for deleting entities; must support batch operations
+     * @param <T>        the type of the entity, which must implement {@link Temporal}
+     * @param <ID>       the type of the entity's identifier
+     * @param entities   the list of entities to delete; must not be {@code null} or empty
+     * @param threads    the number of threads to use for parallel processing; must be greater than 0
+     * @param repository the repository to use for deleting entities; must support batch operations
      * @throws IllegalArgumentException if the {@code entities} list is {@code null} or empty,
      *                                  or if {@code threads} is less than or equal to 0
      * @throws RuntimeException         if an error occurs while deleting entities or managing transactions
@@ -153,7 +153,7 @@ public class ParallelBatchUpdater {
                     repository.deleteInBatch(sublist, entityManager); // Save the sublist using the repository
                     transaction.commit();
                 } catch (Exception e) {
-                    if(transaction != null){
+                    if (transaction != null) {
                         transaction.rollback();
                     }
                     throw new RuntimeException("Error while saving entities", e);

@@ -62,7 +62,19 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * @param entities the list of entities to save in batch
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
-    void saveInBatch(List<T> entities);
+    void saveInBatch(@Nonnull List<T> entities);
+
+    /**
+     * Checks if an entity with the given ID excluding timeIn exists and is active (i.e., its {@code timeOut} is equal to {@link Temporal#INFINITY}).
+     * <p>
+     * This method checks if an entity with the provided ID excluding timeIn exists in the database and its {@code timeOut} field
+     * is set to {@link Temporal#INFINITY}. This indicates that the entity is considered active.
+     * </p>
+     *
+     * @param id the ID of the entity excluding timeIn to check for existence
+     * @return {@code true} if the entity exists and its {@code timeOut} is equal to {@link Temporal#INFINITY}, otherwise {@code false}
+     */
+    boolean existsByIdExcludingTimeIn(@Nonnull ID id);
 
     /**
      * Retrieves active entities in batches of the specified size, where the {@code timeOut} field is set
@@ -81,8 +93,7 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * @param predicate the custom predicate to filter entities
      * @return an {@link Optional} containing the active entity if found, or empty if not found
      */
-//    @Nonnull
-    Optional<T> find(String predicate);
+    Optional<T> find(@Nonnull String predicate);
 
 
     /**
@@ -99,7 +110,7 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * @param batchSize the size of each batch for processing
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if batchSize is less than 1
      */
-    void saveInBatch(List<T> entities, int batchSize);
+    void saveInBatch(@Nonnull List<T> entities, int batchSize);
 
     /**
      * Performs a batch save operation using the specified {@link EntityManager}.
@@ -115,7 +126,7 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * @param entityManager the {@link EntityManager} to use for the operation
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty, or if the {@code EntityManager} is {@code null}
      */
-    void saveInBatch(List<T> entities, EntityManager entityManager);
+    void saveInBatch(@Nonnull List<T> entities, EntityManager entityManager);
 
     /**
      * Performs a soft delete operation on the provided list of entities in batches.
@@ -128,7 +139,7 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * @param entities the list of entities to softly delete in batch
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
-    void deleteInBatch(List<T> entities);
+    void deleteInBatch(@Nonnull List<T> entities);
 
     /**
      * Performs a soft delete operation on the provided list of entities in batches of a specified size.
@@ -142,7 +153,7 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * @param batchSize the number of entities to process in each batch
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
-    void deleteInBatch(List<T> entities, int batchSize);
+    void deleteInBatch(@Nonnull List<T> entities, int batchSize);
 
     /**
      * Performs a soft delete operation on the provided list of entities using the given {@link EntityManager}.
@@ -156,5 +167,5 @@ public interface TemporalRepository<T extends Temporal, ID> extends CrudReposito
      * @param entityManager the {@link EntityManager} used to perform the operation
      * @throws IllegalArgumentException if the list of entities is {@code null} or empty
      */
-    void deleteInBatch(List<T> entities, EntityManager entityManager);
+    void deleteInBatch(@Nonnull List<T> entities, EntityManager entityManager);
 }
